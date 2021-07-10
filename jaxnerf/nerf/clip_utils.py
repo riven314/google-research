@@ -2,6 +2,9 @@ import jax
 from jax import random
 import jax.numpy as np
 import jmp
+
+from transformers import FlaxCLIPModel
+
 my_policy = jmp.Policy(compute_dtype=np.float16,
                        param_dtype=np.float16,
                        output_dtype=np.float16)
@@ -82,3 +85,8 @@ def SC_loss(rng_inputs, model, params, bds, rays, N_samples, target_emb, CLIP_mo
     source_emb = CLIP_model.get_image_features(pixel_values=source_img)
     source_emb /= np.linalg.norm(source_emb, axis=-1, keepdims=True)
     return l/2 * (np.sum((source_emb - target_emb) ** 2) / source_emb.shape[0])
+
+
+# TODO @Alex: VisionModel v.s. original CLIP
+def init_CLIP(model_name: str = 'openai/clip-vit-base-patch32'):
+    return FlaxCLIPModel.from_pretrained(model_name, dtype=np.float16)

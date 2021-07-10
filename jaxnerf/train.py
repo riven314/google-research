@@ -88,8 +88,8 @@ def train_step(model, rng, state, batch, lr):
             psnr_c = 0.
 
         def tree_sum_fn(fn):
-            return jax.tree_util.tree_reduce(
-                lambda x, y: x + fn(y), variables, initializer=0)
+            return jax.tree_util.tree_reduce(lambda x, y: x + fn(y),
+                                             variables, initializer=0)
 
         weight_l2 = (tree_sum_fn(lambda z: jnp.sum(z ** 2)) /
                      tree_sum_fn(lambda z: jnp.prod(jnp.array(z.shape))))
