@@ -26,9 +26,7 @@ from jaxnerf.nerf import utils
 
 def get_model(key, example_batch, args):
     """A helper function that wraps around a 'model zoo'."""
-    model_dict = {
-        "nerf": construct_nerf,
-    }
+    model_dict = {"nerf": construct_nerf}
     return model_dict[args.model](key, example_batch, args)
 
 
@@ -44,7 +42,7 @@ class NerfModel(nn.Module):
     net_width: int  # The width of the first part of MLP.
     net_depth_condition: int  # The depth of the second part of MLP.
     net_width_condition: int  # The width of the second part of MLP.
-    net_activation: Callable[Ellipsis, Any]  # MLP activation
+    net_activation: Callable[[Ellipsis], Any]  # MLP activation
     skip_layer: int  # How often to add skip connections.
     num_rgb_channels: int  # The number of RGB channels.
     num_sigma_channels: int  # The number of density channels.
@@ -110,6 +108,7 @@ class NerfModel(nn.Module):
             )
             raw_rgb, raw_sigma = coarse_mlp(samples_enc, viewdirs_enc)
         else:
+            viewdirs_enc = None
             raw_rgb, raw_sigma = coarse_mlp(samples_enc)
         # Add noises to regularize the density predictions if needed
         key, rng_0 = random.split(rng_0)

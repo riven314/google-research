@@ -60,23 +60,23 @@ def convert_to_ndc(origins, directions, focal, w, h, near=1.):
 class Dataset(threading.Thread):
     """Dataset Base Class."""
 
-    def __init__(self, split, args):
+    def __init__(self, split, flags):
         super(Dataset, self).__init__()
         self.queue = queue.Queue(3)  # Set prefetch buffer to 3 batches.
         self.daemon = True
-        self.use_pixel_centers = args.use_pixel_centers
+        self.use_pixel_centers = flags.use_pixel_centers
         self.split = split
         if split == "train":
-            self._train_init(args)
+            self._train_init(flags)
         elif split == "test":
-            self._test_init(args)
+            self._test_init(flags)
         else:
             raise ValueError(
                 "the split argument should be either \"train\" or \"test\", set"
                 "to {} here.".format(split))
-        self.batch_size = args.batch_size // jax.host_count()
-        self.batching = args.batching
-        self.render_path = args.render_path
+        self.batch_size = flags.batch_size // jax.host_count()
+        self.batching = flags.batching
+        self.render_path = flags.render_path
         self.start()
 
     def __iter__(self):
@@ -118,26 +118,26 @@ class Dataset(threading.Thread):
     def size(self):
         return self.n_examples
 
-    def _train_init(self, args):
+    def _train_init(self, flags):
         """Initialize training."""
-        self._load_renderings(args)
+        self._load_renderings(flags)
         self._generate_rays()
 
-        if args.batching == "all_images":
+        if flags.batching == "all_images":
             # flatten the ray and image dimension together.
             self.images = self.images.reshape([-1, 3])
             self.rays = utils.namedtuple_map(lambda r: r.reshape([-1, r.shape[-1]]),
                                              self.rays)
-        elif args.batching == "single_image":
+        elif flags.batching == "single_image":
             self.images = self.images.reshape([-1, self.resolution, 3])
             self.rays = utils.namedtuple_map(
                 lambda r: r.reshape([-1, self.resolution, r.shape[-1]]), self.rays)
         else:
             raise NotImplementedError(
-                f"{args.batching} batching strategy is not implemented.")
+                f"{flags.batching} batching strategy is not implemented.")
 
-    def _test_init(self, args):
-        self._load_renderings(args)
+    def _test_init(self, flags):
+        self._load_renderings(flags)
         self._generate_rays()
         self.it = 0
 
@@ -197,35 +197,16 @@ class Dataset(threading.Thread):
 class Blender(Dataset):
     """Blender Dataset."""
 
-    def _load_renderings(self, args):
+    def _load_renderings(self, flags):
         """Load images from disk."""
-        if args.render_path:
+        if flags.render_path:
             raise ValueError("render_path cannot be used for the blender dataset.")
-        with utils.open_file(
-                path.join(args.data_dir, "transforms_{}.json".format(self.split)),
-                "r") as fp:
-            meta = json.load(fp)
-        images = []
-        cams = []
-        for i in range(len(meta["frames"])):
-            frame = meta["frames"][i]
-            fname = os.path.join(args.data_dir, frame["file_path"] + ".png")
-            with utils.open_file(fname, "rb") as imgin:
-                image = np.array(Image.open(imgin), dtype=np.float32) / 255.
-                if args.factor == 2:
-                    [halfres_h, halfres_w] = [hw // 2 for hw in image.shape[:2]]
-                    image = cv2.resize(
-                        image, (halfres_w, halfres_h), interpolation=cv2.INTER_AREA)
-                elif args.factor > 0:
-                    raise ValueError("Blender dataset only supports factor=0 or 2, {} "
-                                     "set.".format(args.factor))
-            cams.append(np.array(frame["transform_matrix"], dtype=np.float32))
-            images.append(image)
+        cams, images, meta = self.load_files(flags.data_dir, flags.split, flags.factor)
+
         self.images = np.stack(images, axis=0)
-        if args.white_bkgd:
-            self.images = (
-                    self.images[Ellipsis, :3] * self.images[Ellipsis, -1:] +
-                    (1. - self.images[Ellipsis, -1:]))
+        if flags.white_bkgd:
+            self.images = (self.images[Ellipsis, :3] * self.images[Ellipsis, -1:] +
+                           (1. - self.images[Ellipsis, -1:]))
         else:
             self.images = self.images[Ellipsis, :3]
         self.h, self.w = self.images.shape[1:3]
@@ -235,20 +216,46 @@ class Blender(Dataset):
         self.focal = .5 * self.w / np.tan(.5 * camera_angle_x)
         self.n_examples = self.images.shape[0]
 
+    @staticmethod
+    def load_files(data_dir, split, factor):
+        with utils.open_file(path.join(data_dir, "transforms_{}.json".format(split)), "r") as fp:
+            meta = json.load(fp)
+        images = []
+        cams = []
+        for i in range(len(meta["frames"])):
+            frame = meta["frames"][i]
+            fname = os.path.join(data_dir, frame["file_path"] + ".png")
+            with utils.open_file(fname, "rb") as imgin:
+                image = np.array(Image.open(imgin)).astype(np.float32) / 255.
+                if factor == 2:
+                    [halfres_h, halfres_w] = [hw // 2 for hw in image.shape[:2]]
+                    image = cv2.resize(image, (halfres_w, halfres_h),
+                                       interpolation=cv2.INTER_AREA)
+                elif factor == 4:
+                    [halfres_h, halfres_w] = [hw // 4 for hw in image.shape[:2]]
+                    image = cv2.resize(image, (halfres_w, halfres_h),
+                                       interpolation=cv2.INTER_AREA)
+                elif factor > 0:
+                    raise ValueError("Blender dataset only supports factor=0 or 2 or 4, {} "
+                                     "set.".format(factor))
+            cams.append(np.array(frame["transform_matrix"], dtype=np.float32))
+            images.append(image)
+        return cams, images, meta
+
 
 class LLFF(Dataset):
     """LLFF Dataset."""
 
-    def _load_renderings(self, args):
+    def _load_renderings(self, flags):
         """Load images from disk."""
         # Load images.
         imgdir_suffix = ""
-        if args.factor > 0:
-            imgdir_suffix = "_{}".format(args.factor)
-            factor = args.factor
+        if flags.factor > 0:
+            imgdir_suffix = "_{}".format(flags.factor)
+            factor = flags.factor
         else:
             factor = 1
-        imgdir = path.join(args.data_dir, "images" + imgdir_suffix)
+        imgdir = path.join(flags.data_dir, "images" + imgdir_suffix)
         if not utils.file_exists(imgdir):
             raise ValueError("Image folder {} doesn't exist.".format(imgdir))
         imgfiles = [
@@ -264,7 +271,7 @@ class LLFF(Dataset):
         images = np.stack(images, axis=-1)
 
         # Load poses and bds.
-        with utils.open_file(path.join(args.data_dir, "poses_bounds.npy"),
+        with utils.open_file(path.join(flags.data_dir, "poses_bounds.npy"),
                              "rb") as fp:
             poses_arr = np.load(fp)
         poses = poses_arr[:, :-2].reshape([-1, 3, 5]).transpose([1, 2, 0])
@@ -293,16 +300,16 @@ class LLFF(Dataset):
         poses = self._recenter_poses(poses)
 
         # Generate a spiral/spherical ray path for rendering videos.
-        if args.spherify:
+        if flags.spherify:
             poses = self._generate_spherical_poses(poses, bds)
             self.spherify = True
         else:
             self.spherify = False
-        if not args.spherify and self.split == "test":
+        if not flags.spherify and self.split == "test":
             self._generate_spiral_poses(poses, bds)
 
         # Select the split.
-        i_test = np.arange(images.shape[0])[::args.llffhold]
+        i_test = np.arange(images.shape[0])[::flags.llffhold]
         i_train = np.array(
             [i for i in np.arange(int(images.shape[0])) if i not in i_test])
         if self.split == "train":
@@ -317,7 +324,7 @@ class LLFF(Dataset):
         self.focal = poses[0, -1, -1]
         self.h, self.w = images.shape[1:3]
         self.resolution = self.h * self.w
-        if args.render_path:
+        if flags.render_path:
             self.n_examples = self.render_poses.shape[0]
         else:
             self.n_examples = images.shape[0]
@@ -472,7 +479,5 @@ class LLFF(Dataset):
         return poses_reset
 
 
-dataset_dict = {
-    "blender": Blender,
-    "llff": LLFF,
-}
+dataset_dict = {"blender": Blender,
+                "llff": LLFF}
