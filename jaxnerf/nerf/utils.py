@@ -18,6 +18,7 @@
 import collections
 import os
 from os import path
+import pickle
 from absl import flags
 import flax
 import jax
@@ -412,3 +413,15 @@ def unshard(x, padding=0):
     if padding > 0:
         y = y[:-padding]
     return y
+
+
+def write_pickle(data, fn):
+    with open(fn, 'wb') as f:
+        pickle.dump(data, f)
+    return None
+
+
+def read_pickle(fn):
+    with open(fn, 'rb') as f:
+        data = pickle.load(f)
+    return data
