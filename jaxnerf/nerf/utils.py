@@ -62,6 +62,20 @@ def define_flags():
     flags.DEFINE_string("config", None,
                         "using config files to set hyperparameters.")
 
+    # CLIP part Flags
+    flags.DEFINE_string("precompute_pkl_path", None,
+                        "where to load the pickle file that precompute image features")
+    flags.DEFINE_string("clip_model_name", "openai/clip-vit-base-patch32", "model type for CLIP")
+    flags.DEFINE_string("clip_output_dtype", None,
+                        "float32/ float16 (float16 for memory saving)")
+    flags.DEFINE_integer("clip_downsample_factor", 4,
+                         "factor for downsampling image (0/2/4). "
+                         "its compounded on top of another flag: factor")
+    flags.DEFINE_integer("sc_loss_eval_step", 16,
+                         "no. of steps to take before performing semantic loss evaluation")
+    flags.DEFINE_float("weight_sc_mult", 10.,
+                       "weighting for semantic loss from CLIP")
+
     # Dataset Flags
     # TODO(pratuls): rename to dataset_loader and consider cleaning up
     flags.DEFINE_enum("dataset", "blender",

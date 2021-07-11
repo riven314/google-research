@@ -59,15 +59,15 @@ class NerfModel(nn.Module):
     def __call__(self, rng_0, rng_1, rays, randomized):
         """Nerf Model.
 
-    Args:
-      rng_0: jnp.ndarray, random number generator for coarse model sampling.
-      rng_1: jnp.ndarray, random number generator for fine model sampling.
-      rays: util.Rays, a namedtuple of ray origins, directions, and viewdirs.
-      randomized: bool, use randomized stratified sampling.
+        Args:
+          rng_0: jnp.ndarray, random number generator for coarse model sampling.
+          rng_1: jnp.ndarray, random number generator for fine model sampling.
+          rays: util.Rays, a namedtuple of ray origins, directions, and viewdirs.
+          randomized: bool, use randomized stratified sampling.
 
-    Returns:
-      ret: list, [(rgb_coarse, disp_coarse, acc_coarse), (rgb, disp, acc)]
-    """
+        Returns:
+          ret: list, [(rgb_coarse, disp_coarse, acc_coarse), (rgb, disp, acc)]
+        """
         # Stratified sampling along rays
         key, rng_0 = random.split(rng_0)
         z_vals, samples = model_utils.sample_along_rays(

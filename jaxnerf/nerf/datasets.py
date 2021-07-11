@@ -27,7 +27,9 @@ if not INTERNAL:
 import jax
 import numpy as np
 from PIL import Image
+
 from jaxnerf.nerf import utils
+from jaxnerf.nerf import clip_utils
 
 
 def get_dataset(split, args):
@@ -77,6 +79,8 @@ class Dataset(threading.Thread):
         self.batch_size = flags.batch_size // jax.host_count()
         self.batching = flags.batching
         self.render_path = flags.render_path
+        self.max_steps = flags.max_steps
+        self.clip_downsample_factor = flags.clip_downsample_factor
         self.start()
 
     def __iter__(self):
@@ -149,6 +153,8 @@ class Dataset(threading.Thread):
                                             (self.batch_size,))
             batch_pixels = self.images[ray_indices]
             batch_rays = utils.namedtuple_map(lambda r: r[ray_indices], self.rays)
+            raise NotImplementedError("image_index not implemented for batching=all_images")
+
         elif self.batching == "single_image":
             image_index = np.random.randint(0, self.n_examples, ())
             ray_indices = np.random.randint(0, self.rays[0][0].shape[0],
@@ -159,7 +165,7 @@ class Dataset(threading.Thread):
         else:
             raise NotImplementedError(
                 f"{self.batching} batching strategy is not implemented.")
-        return {"pixels": batch_pixels, "rays": batch_rays}
+        return {"pixels": batch_pixels, "rays": batch_rays, "image_index": image_index}
 
     def _next_test(self):
         """Sample next test example."""
@@ -169,10 +175,9 @@ class Dataset(threading.Thread):
         if self.render_path:
             return {"rays": utils.namedtuple_map(lambda r: r[idx], self.render_rays)}
         else:
-            return {
-                "pixels": self.images[idx],
-                "rays": utils.namedtuple_map(lambda r: r[idx], self.rays)
-            }
+            return {"pixels": self.images[idx],
+                    "rays": utils.namedtuple_map(lambda r: r[idx], self.rays),
+                    "image_index": idx}
 
     # TODO(bydeng): Swap this function with a more flexible camera model.
     def _generate_rays(self):
@@ -202,6 +207,10 @@ class Blender(Dataset):
         if flags.render_path:
             raise ValueError("render_path cannot be used for the blender dataset.")
         cams, images, meta = self.load_files(flags.data_dir, flags.split, flags.factor)
+
+        # load in CLIP precomputed image features
+        self.embeddings = utils.read_pickle(flags.precompute_pkl_path)
+        self.precompute_pkl_path = flags.precompute_pkl_path
 
         self.images = np.stack(images, axis=0)
         if flags.white_bkgd:
@@ -241,6 +250,27 @@ class Blender(Dataset):
             cams.append(np.array(frame["transform_matrix"], dtype=np.float32))
             images.append(image)
         return cams, images, meta
+
+    # TODO @Alex: simplify repetitive code later
+    def _next_train(self):
+        batch_dict = super(Blender, self)._next_train()
+        if self.batching == "single_image":
+            image_index = batch_dict["image_index"]
+            # target image for CLIP
+            batch_dict["embedding"] = self.embeddings[image_index]
+            # source rays for CLIP (for constructing source image later)
+
+            # TODO @Alex: ask Stella on how to construct random rays
+            # TODO @Alex: if image has to be additonallty downsampled before feeding to CLIP, should do the downsampling here
+            rng = int(np.random.randint(0, self.max_steps, ()))
+            src_pose = clip_utils.random_pose(rng, bds[0], bds[1])
+            random_rays = utils.Rays(origins, directions, viewdirs)
+            batch_dict["random_rays"] = random_rays
+
+        else:
+            raise NotImplementedError
+
+        return batch_dict
 
 
 class LLFF(Dataset):

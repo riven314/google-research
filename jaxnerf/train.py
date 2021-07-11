@@ -33,6 +33,7 @@ import numpy as np
 from jaxnerf.nerf import datasets
 from jaxnerf.nerf import models
 from jaxnerf.nerf import utils
+from jaxnerf.nerf import clip_utils
 
 FLAGS = flags.FLAGS
 
@@ -41,15 +42,14 @@ config.parse_flags_with_absl()
 
 # set up TPU for colab
 import os
-
 if "COLAB_TPU_ADDR" in os.environ:
     import jax.tools.colab_tpu
-
     jax.tools.colab_tpu.setup_tpu()
 print(jax.local_devices())
 
 
-def train_step(model, rng, state, batch, lr):
+def train_step(model, clip_model, step, sc_loss_eval_step,
+               clip_downsample_factor, rng, state, batch, lr):
     """One optimization step.
 
     Args:
@@ -65,6 +65,7 @@ def train_step(model, rng, state, batch, lr):
         rng: jnp.ndarray, updated random number generator.
     """
     rng, key_0, key_1 = random.split(rng, 3)
+    is_eval_sc_loss = True if step % sc_loss_eval_step == 0 else False
 
     def loss_fn(variables):
         rays = batch["rays"]
@@ -94,9 +95,29 @@ def train_step(model, rng, state, batch, lr):
         weight_l2 = (tree_sum_fn(lambda z: jnp.sum(z ** 2)) /
                      tree_sum_fn(lambda z: jnp.prod(jnp.array(z.shape))))
 
+        # CLIP semantic loss
+        # TODO @Alex: add mixed precision later
+        if is_eval_sc_loss:
+            random_rays = batch["random_rays"]
+            # TODO @Alex: alternatives -- sample less along a ray/ sample on a strided grid
+            src_ret = model.apply(variables, key_0, key_1, random_rays, False)
+            src_image, _, _ = src_ret[-1]
+            # TODO @Alex: may needa reshape it into image shape
+            src_image = np.expand_dims(src_image, 0).transpose(0, 3, 1, 2)
+            src_image = clip_utils.preprocess_for_CLIP(src_image)
+            src_embedding = clip_model.get_image_features(pixel_values=src_image)
+            src_embedding /= np.linalg.norm(src_embedding, axis=-1, keepdims=True)
+            src_embedding = jnp.array(src_embedding)
+            target_embedding = batch["embedding"]
+            sc_loss = np.sum((src_embedding-target_embedding)**2)/src_embedding.shape[0]
+        else:
+            sc_loss = 0.
+
+        total_loss = loss + loss_c + FLAGS.weight_decay_mult * weight_l2
+        total_loss += 0.5 * FLAGS.weight_sc_mult * sc_loss
         stats = utils.Stats(loss=loss, psnr=psnr, loss_c=loss_c,
                             psnr_c=psnr_c, weight_l2=weight_l2)
-        return loss + loss_c + FLAGS.weight_decay_mult * weight_l2, stats
+        return total_loss, stats
 
     (_, stats), grad = (
         jax.value_and_grad(loss_fn, has_aux=True)(state.optimizer.target))
@@ -138,11 +159,16 @@ def main(unused_argv):
     dataset = datasets.get_dataset("train", FLAGS)
     test_dataset = datasets.get_dataset("test", FLAGS)
 
+    # setup NeRF model
     rng, key = random.split(rng)
     model, variables = models.get_model(key, dataset.peek(), FLAGS)
     optimizer = flax.optim.Adam(FLAGS.lr_init).create(variables)
     state = utils.TrainState(optimizer=optimizer)
     del optimizer, variables
+
+    # setup CLIP model
+    clip_model = clip_utils.init_CLIP(FLAGS.clip_output_dtype,
+                                      FLAGS.clip_model_name)
 
     learning_rate_fn = functools.partial(
         utils.learning_rate_decay,
@@ -167,8 +193,7 @@ def main(unused_argv):
         render_fn,
         in_axes=(None, None, None, 0),  # Only distribute the data input.
         donate_argnums=(3,),
-        axis_name="batch",
-    )
+        axis_name="batch")
 
     # Compiling to the CPU because it's faster and more accurate.
     ssim_fn = jax.jit(
@@ -179,7 +204,11 @@ def main(unused_argv):
     state = checkpoints.restore_checkpoint(FLAGS.train_dir, state)
     # Resume training a the step of the last checkpoint.
     init_step = state.optimizer.state.step + 1
+
+    # for distributive training
     state = flax.jax_utils.replicate(state)
+    # TODO @Alex: not sure if it is ok
+    clip_model = flax.jax_utils.replicate(clip_model)
 
     if jax.host_id() == 0:
         summary_writer = tensorboard.SummaryWriter(FLAGS.train_dir)
