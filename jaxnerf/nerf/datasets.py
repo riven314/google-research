@@ -76,9 +76,11 @@ class Dataset(threading.Thread):
             raise ValueError(
                 "the split argument should be either \"train\" or \"test\", set"
                 "to {} here.".format(split))
-        self.batch_size = flags.batch_size // jax.host_count()
+        self.batch_size = flags.batch_size // jax.process_count()
         self.batching = flags.batching
         self.render_path = flags.render_path
+        self.far = flags.far
+        self.near = flags.near
         self.max_steps = flags.max_steps
         self.clip_downsample_factor = flags.clip_downsample_factor
         self.start()
@@ -198,6 +200,21 @@ class Dataset(threading.Thread):
         self.rays = utils.Rays(
             origins=origins, directions=directions, viewdirs=viewdirs)
 
+    def camtoworld_matrix_to_rays(self, camtoworld):
+        """ render one instance of rays given a camera to world matrix (4, 4) """
+        pixel_center = 0.5 if self.use_pixel_centers else 0.0
+        x, y = np.meshgrid(  # pylint: disable=unbalanced-tuple-unpacking
+            np.arange(self.w, dtype=np.float32) + pixel_center,  # X-Axis (columns)
+            np.arange(self.h, dtype=np.float32) + pixel_center,  # Y-Axis (rows)
+            indexing="xy")
+        camera_dirs = np.stack([(x - self.w * 0.5) / self.focal,
+                                -(y - self.h * 0.5) / self.focal, -np.ones_like(x)],
+                               axis=-1)
+        directions = (camera_dirs[Ellipsis, None, :] * camtoworld[None, None, :3, :3]).sum(axis=-1)
+        origins = np.broadcast_to(camtoworld[None, None, :3, -1], directions.shape)
+        viewdirs = directions / np.linalg.norm(directions, axis=-1, keepdims=True)
+        return utils.Rays(origins=origins, directions=directions, viewdirs=viewdirs)
+
 
 class Blender(Dataset):
     """Blender Dataset."""
@@ -251,20 +268,19 @@ class Blender(Dataset):
             images.append(image)
         return cams, images, meta
 
-    # TODO @Alex: simplify repetitive code later
     def _next_train(self):
         batch_dict = super(Blender, self)._next_train()
         if self.batching == "single_image":
             image_index = batch_dict["image_index"]
             # target image for CLIP
             batch_dict["embedding"] = self.embeddings[image_index]
-            # source rays for CLIP (for constructing source image later)
 
-            # TODO @Alex: ask Stella on how to construct random rays
+            # source rays for CLIP (for constructing source image later)
             # TODO @Alex: if image has to be additonallty downsampled before feeding to CLIP, should do the downsampling here
-            rng = int(np.random.randint(0, self.max_steps, ()))
-            src_pose = clip_utils.random_pose(rng, bds[0], bds[1])
-            random_rays = utils.Rays(origins, directions, viewdirs)
+            src_seed = int(np.random.randint(0, self.max_steps, ()))
+            src_rng = jax.random.PRNGKey(src_seed)
+            src_camtoworld = np.array(clip_utils.random_pose(src_rng, (self.near, self.far)))
+            random_rays = self.camtoworld_matrix_to_rays(src_camtoworld)
             batch_dict["random_rays"] = random_rays
 
         else:
