@@ -1,3 +1,5 @@
+from typing import Optional
+
 import jax
 from jax import random
 import jax.numpy as np
@@ -87,6 +89,15 @@ def SC_loss(rng_inputs, model, params, bds, rays, N_samples, target_emb, CLIP_mo
     return l/2 * (np.sum((source_emb - target_emb) ** 2) / source_emb.shape[0])
 
 
-# TODO @Alex: VisionModel v.s. original CLIP
-def init_CLIP(model_name: str = 'openai/clip-vit-base-patch32'):
-    return FlaxCLIPModel.from_pretrained(model_name, dtype=np.float16)
+# TODO @Alex: VisionModel v.s. original CLIP? (differ by a projection matrix)
+def init_CLIP(dtype: str, model_name: Optional[str]) -> FlaxCLIPModel:
+    if dtype == 'float16':
+        dtype = np.float16
+    elif dtype == 'float32':
+        dtype = np.float32
+    else:
+        raise ValueError
+
+    if model_name is None:
+        model_name = 'openai/clip-vit-base-patch32'
+    return FlaxCLIPModel.from_pretrained(model_name, dtype=dtype)
