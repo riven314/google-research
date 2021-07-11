@@ -1,6 +1,7 @@
 """
 command line example:
-$ python -m
+$ python -i -m jaxnerf.nerf.precompute --data_dir {path-to-data-dir} --split train \
+                                       --dataset blender --factor 4 --dtype float16
 """
 import os
 import argparse
