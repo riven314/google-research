@@ -119,7 +119,8 @@ def train_step(model, clip_model,
         total_loss = loss + loss_c + FLAGS.weight_decay_mult * weight_l2
         total_loss += 0.5 * FLAGS.weight_sc_mult * sc_loss
         stats = utils.Stats(loss=loss, psnr=psnr, loss_c=loss_c,
-                            psnr_c=psnr_c, weight_l2=weight_l2)
+                            psnr_c=psnr_c, weight_l2=weight_l2,
+                            sc_loss=sc_loss)
         return total_loss, stats
 
     (_, stats), grad = (
