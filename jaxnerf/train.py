@@ -45,7 +45,7 @@ import os
 if "COLAB_TPU_ADDR" in os.environ:
     import jax.tools.colab_tpu
     jax.tools.colab_tpu.setup_tpu()
-print(jax.local_devices())
+print(f"detected device: {jax.local_devices()}")
 
 
 def train_step(model, clip_model,
