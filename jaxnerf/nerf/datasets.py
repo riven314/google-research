@@ -276,7 +276,7 @@ class Blender(Dataset):
             batch_dict["embedding"] = self.embeddings[image_index]
 
             # source rays for CLIP (for constructing source image later)
-            # TODO @Alex: if image has to be additonallty downsampled before feeding to CLIP, should do the downsampling here
+            # TODO @Alex: additonallty downsampled before feeding to CLIP (optional if needed)
             src_seed = int(np.random.randint(0, self.max_steps, ()))
             src_rng = jax.random.PRNGKey(src_seed)
             src_camtoworld = np.array(clip_utils.random_pose(src_rng, (self.near, self.far)))

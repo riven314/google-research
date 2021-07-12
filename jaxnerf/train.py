@@ -15,7 +15,7 @@
 
 # Lint as: python3
 """Training script for Nerf."""
-
+import math
 import functools
 import gc
 import time
@@ -48,8 +48,9 @@ if "COLAB_TPU_ADDR" in os.environ:
 print(jax.local_devices())
 
 
-def train_step(model, clip_model, step, sc_loss_eval_step,
-               clip_downsample_factor, rng, state, batch, lr):
+def train_step(model, clip_model,
+               step, sc_loss_eval_step,
+               rng, state, batch, lr):
     """One optimization step.
 
     Args:
@@ -102,7 +103,9 @@ def train_step(model, clip_model, step, sc_loss_eval_step,
             # TODO @Alex: alternatives -- sample less along a ray/ sample on a strided grid
             src_ret = model.apply(variables, key_0, key_1, random_rays, False)
             src_image, _, _ = src_ret[-1]
-            # TODO @Alex: may needa reshape it into image shape
+            # reshape flat pixel to an image (assume 3 channels & square shape)
+            w = int(math.sqrt(src_image.shape[0]))
+            src_image = src_image.reshape([-1, w, w, 3])
             src_image = np.expand_dims(src_image, 0).transpose(0, 3, 1, 2)
             src_image = clip_utils.preprocess_for_CLIP(src_image)
             src_embedding = clip_model.get_image_features(pixel_values=src_image)
