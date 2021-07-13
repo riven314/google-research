@@ -29,6 +29,7 @@ from jax import config
 from jax import random
 import jax.numpy as jnp
 import numpy as np
+from tqdm import tqdm
 
 from jaxnerf.nerf import datasets
 from jaxnerf.nerf import models
@@ -192,7 +193,7 @@ def main(unused_argv):
     gc.disable()  # Disable automatic garbage collection for efficiency.
     stats_trace = []
     reset_timer = True
-    for step, batch in zip(range(init_step, FLAGS.max_steps + 1), pdataset):
+    for step, batch in tqdm(zip(range(init_step, FLAGS.max_steps + 1), pdataset)):
         if reset_timer:
             t_loop_start = time.time()
             reset_timer = False
