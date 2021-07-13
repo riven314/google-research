@@ -44,7 +44,7 @@ class NerfModel(nn.Module):
     net_width: int  # The width of the first part of MLP.
     net_depth_condition: int  # The depth of the second part of MLP.
     net_width_condition: int  # The width of the second part of MLP.
-    net_activation: Callable[Ellipsis, Any]  # MLP activation
+    net_activation: Callable[..., Any]  # MLP activation
     skip_layer: int  # How often to add skip connections.
     num_rgb_channels: int  # The number of RGB channels.
     num_sigma_channels: int  # The number of density channels.
@@ -53,8 +53,8 @@ class NerfModel(nn.Module):
     max_deg_point: int  # The maximum degree of positional encoding for positions.
     deg_view: int  # The degree of positional encoding for viewdirs.
     lindisp: bool  # If True, sample linearly in disparity rather than in depth.
-    rgb_activation: Callable[Ellipsis, Any]  # Output RGB activation.
-    sigma_activation: Callable[Ellipsis, Any]  # Output sigma activation.
+    rgb_activation: Callable[..., Any]  # Output RGB activation.
+    sigma_activation: Callable[..., Any]  # Output sigma activation.
     legacy_posenc_order: bool  # Keep the same ordering as the original tf code.
 
     @nn.compact
@@ -134,12 +134,12 @@ class NerfModel(nn.Module):
         ]
         # Hierarchical sampling based on coarse predictions
         if self.num_fine_samples > 0:
-            z_vals_mid = .5 * (z_vals[Ellipsis, 1:] + z_vals[Ellipsis, :-1])
+            z_vals_mid = .5 * (z_vals[..., 1:] + z_vals[..., :-1])
             key, rng_1 = random.split(rng_1)
             z_vals, samples = model_utils.sample_pdf(
                 key,
                 z_vals_mid,
-                weights[Ellipsis, 1:-1],
+                weights[..., 1:-1],
                 rays.origins,
                 rays.directions,
                 z_vals,

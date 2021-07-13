@@ -37,8 +37,8 @@ def get_dataset(split, args):
 def convert_to_ndc(origins, directions, focal, w, h, near=1.):
     """Convert a set of rays to NDC coordinates."""
     # Shift ray origins to near plane
-    t = -(near + origins[Ellipsis, 2]) / directions[Ellipsis, 2]
-    origins = origins + t[Ellipsis, None] * directions
+    t = -(near + origins[..., 2]) / directions[..., 2]
+    origins = origins + t[..., None] * directions
 
     dx, dy, dz = tuple(np.moveaxis(directions, -1, 0))
     ox, oy, oz = tuple(np.moveaxis(origins, -1, 0))
@@ -185,7 +185,7 @@ class Dataset(threading.Thread):
         camera_dirs = np.stack([(x - self.w * 0.5) / self.focal,
                                 -(y - self.h * 0.5) / self.focal, -np.ones_like(x)],
                                axis=-1)
-        directions = ((camera_dirs[None, Ellipsis, None, :] *
+        directions = ((camera_dirs[None, ..., None, :] *
                        self.camtoworlds[:, None, None, :3, :3]).sum(axis=-1))
         origins = np.broadcast_to(self.camtoworlds[:, None, None, :3, -1],
                                   directions.shape)
@@ -224,10 +224,10 @@ class Blender(Dataset):
         self.images = np.stack(images, axis=0)
         if args.white_bkgd:
             self.images = (
-                    self.images[Ellipsis, :3] * self.images[Ellipsis, -1:] +
-                    (1. - self.images[Ellipsis, -1:]))
+                    self.images[..., :3] * self.images[..., -1:] +
+                    (1. - self.images[..., -1:]))
         else:
-            self.images = self.images[Ellipsis, :3]
+            self.images = self.images[..., :3]
         self.h, self.w = self.images.shape[1:3]
         self.resolution = self.h * self.w
         self.camtoworlds = np.stack(cams, axis=0)

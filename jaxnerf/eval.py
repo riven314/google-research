@@ -44,8 +44,8 @@ def compute_lpips(image1, image2, model):
     """Compute the LPIPS metric."""
     # The LPIPS model expects a batch dimension.
     return model(
-        tf.convert_to_tensor(image1[None, Ellipsis]),
-        tf.convert_to_tensor(image2[None, Ellipsis]))[0]
+        tf.convert_to_tensor(image1[None, ...]),
+        tf.convert_to_tensor(image2[None, ...]))[0]
 
 
 def main(unused_argv):
@@ -135,7 +135,7 @@ def main(unused_argv):
                 lpips_values.append(float(lpips))
             if FLAGS.save_output:
                 utils.save_img(pred_color, path.join(out_dir, "{:03d}.png".format(idx)))
-                utils.save_img(pred_disp[Ellipsis, 0],
+                utils.save_img(pred_disp[..., 0],
                                path.join(out_dir, "disp_{:03d}.png".format(idx)))
         if (not FLAGS.eval_once) and (jax.host_id() == 0):
             summary_writer.image("pred_color", showcase_color, step)

@@ -76,13 +76,13 @@ def train_step(model, rng, state, batch, lr):
                 "of output (coarse as ret[0] and fine as ret[1]).")
         # The main prediction is always at the end of the ret list.
         rgb, unused_disp, unused_acc = ret[-1]
-        loss = ((rgb - batch["pixels"][Ellipsis, :3]) ** 2).mean()
+        loss = ((rgb - batch["pixels"][..., :3]) ** 2).mean()
         psnr = utils.compute_psnr(loss)
         if len(ret) > 1:
             # If there are both coarse and fine predictions, we compute the loss for
             # the coarse prediction (ret[0]) as well.
             rgb_c, unused_disp_c, unused_acc_c = ret[0]
-            loss_c = ((rgb_c - batch["pixels"][Ellipsis, :3]) ** 2).mean()
+            loss_c = ((rgb_c - batch["pixels"][..., :3]) ** 2).mean()
             psnr_c = utils.compute_psnr(loss_c)
         else:
             loss_c = 0.
