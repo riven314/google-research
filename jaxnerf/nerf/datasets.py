@@ -272,7 +272,7 @@ class Blender(Dataset):
     def _next_train(self):
         batch_dict = super(Blender, self)._next_train()
         if self.batching == "single_image":
-            image_index = batch_dict["image_index"]
+            image_index = batch_dict.pop("image_index")
             # target image for CLIP
             batch_dict["embedding"] = self.embeddings[image_index]
 
