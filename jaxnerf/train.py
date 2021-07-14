@@ -198,6 +198,11 @@ def main(unused_argv):
     gc.disable()  # Disable automatic garbage collection for efficiency.
     stats_trace = []
     reset_timer = True
+
+    # for semantic loss update
+    cnter = 1
+    trigger = int(FLAGS.sc_loss_every / n_local_devices)
+
     for step, batch in zip(range(init_step, FLAGS.max_steps + 1), pdataset):
         if reset_timer:
             t_loop_start = time.time()
@@ -210,14 +215,17 @@ def main(unused_argv):
             gc.collect()
 
         # update semantic loss only on host coz it has biggest memory
-        if (jax.host_id() == 0) and (step % FLAGS.sc_loss_every == 0):
+        # e.g. sc_loss_every = 16, device = 8, then every 2 host step have to update semantic loss
+        sc_loss = 0.
+        if (jax.host_id() == 0) and (cnter < trigger):
+            cnter += 1
+        elif (jax.host_id() == 0) and (cnter == trigger):
+            cnter = 1
             # remove dimension for device coz its only run in host core
             batch["random_rays"] = batch["random_rays"][0, ...]
             batch["embedding"] = batch["embedding"][0, ...]
             state, sc_loss, keys = clip_utils.update_semantic_loss(model, clip_model,
                                                                    keys, state, batch, lr)
-        else:
-            sc_loss = 0.
 
         # Log training summaries. This is put behind a host_id check because in
         # multi-host evaluation, all hosts need to run inference even though we
