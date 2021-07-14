@@ -222,8 +222,8 @@ def main(unused_argv):
         elif (jax.host_id() == 0) and (cnter == trigger):
             cnter = 1
             # remove dimension for device coz its only run in host core
-            batch["random_rays"] = batch["random_rays"][0, ...]
-            batch["embedding"] = batch["embedding"][0, ...]
+            #batch["random_rays"] = batch["random_rays"][0, ...]
+            #batch["embedding"] = batch["embedding"][0, ...]
             state, sc_loss, keys = clip_utils.update_semantic_loss(model, clip_model,
                                                                    keys, state, batch, lr)
 
