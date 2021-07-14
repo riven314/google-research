@@ -82,7 +82,7 @@ class Dataset(threading.Thread):
         self.far = flags.far
         self.near = flags.near
         self.max_steps = flags.max_steps
-        self.clip_downsample_factor = flags.clip_downsample_factor
+        self.sc_loss_factor = flags.sc_loss_factor
         self.start()
 
     def __iter__(self):
@@ -203,6 +203,7 @@ class Dataset(threading.Thread):
     def camtoworld_matrix_to_rays(self, camtoworld):
         """ render one instance of rays given a camera to world matrix (4, 4) """
         pixel_center = 0.5 if self.use_pixel_centers else 0.0
+        # TODO @Alex: apply mesh downsampling here
         x, y = np.meshgrid(  # pylint: disable=unbalanced-tuple-unpacking
             np.arange(self.w, dtype=np.float32) + pixel_center,  # X-Axis (columns)
             np.arange(self.h, dtype=np.float32) + pixel_center,  # Y-Axis (rows)
@@ -276,7 +277,6 @@ class Blender(Dataset):
             batch_dict["embedding"] = self.embeddings[image_index]
 
             # source rays for CLIP (for constructing source image later)
-            # TODO @Alex: additonallty downsampled before feeding to CLIP (optional if needed)
             src_seed = int(np.random.randint(0, self.max_steps, ()))
             src_rng = jax.random.PRNGKey(src_seed)
             src_camtoworld = np.array(clip_utils.random_pose(src_rng, (self.near, self.far)))

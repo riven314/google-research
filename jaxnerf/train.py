@@ -48,9 +48,7 @@ if "COLAB_TPU_ADDR" in os.environ:
 print(f"detected device: {jax.local_devices()}")
 
 
-def train_step(model, clip_model,
-               step, sc_loss_eval_step,
-               rng, state, batch, lr):
+def train_step(model, rng, state, batch, lr):
     """One optimization step.
 
     Args:
@@ -66,7 +64,6 @@ def train_step(model, clip_model,
         rng: jnp.ndarray, updated random number generator.
     """
     rng, key_0, key_1 = random.split(rng, 3)
-    is_eval_sc_loss = True if step % sc_loss_eval_step == 0 else False
 
     def loss_fn(variables):
         rays = batch["rays"]
@@ -96,31 +93,9 @@ def train_step(model, clip_model,
         weight_l2 = (tree_sum_fn(lambda z: jnp.sum(z ** 2)) /
                      tree_sum_fn(lambda z: jnp.prod(jnp.array(z.shape))))
 
-        # CLIP semantic loss
-        # TODO @Alex: add mixed precision later
-        if is_eval_sc_loss:
-            random_rays = batch["random_rays"]
-            # TODO @Alex: alternatives -- sample less along a ray/ sample on a strided grid
-            src_ret = model.apply(variables, key_0, key_1, random_rays, False)
-            src_image, _, _ = src_ret[-1]
-            # reshape flat pixel to an image (assume 3 channels & square shape)
-            w = int(math.sqrt(src_image.shape[0]))
-            src_image = src_image.reshape([-1, w, w, 3])
-            src_image = np.expand_dims(src_image, 0).transpose(0, 3, 1, 2)
-            src_image = clip_utils.preprocess_for_CLIP(src_image)
-            src_embedding = clip_model.get_image_features(pixel_values=src_image)
-            src_embedding /= np.linalg.norm(src_embedding, axis=-1, keepdims=True)
-            src_embedding = jnp.array(src_embedding)
-            target_embedding = batch["embedding"]
-            sc_loss = np.sum((src_embedding-target_embedding)**2)/src_embedding.shape[0]
-        else:
-            sc_loss = 0.
-
         total_loss = loss + loss_c + FLAGS.weight_decay_mult * weight_l2
-        total_loss += 0.5 * FLAGS.weight_sc_mult * sc_loss
         stats = utils.Stats(loss=loss, psnr=psnr, loss_c=loss_c,
-                            psnr_c=psnr_c, weight_l2=weight_l2,
-                            sc_loss=sc_loss)
+                            psnr_c=psnr_c, weight_l2=weight_l2)
         return total_loss, stats
 
     (_, stats), grad = (
@@ -211,8 +186,6 @@ def main(unused_argv):
 
     # for distributive training
     state = flax.jax_utils.replicate(state)
-    # TODO @Alex: not sure if it is ok
-    clip_model = flax.jax_utils.replicate(clip_model)
 
     if jax.host_id() == 0:
         summary_writer = tensorboard.SummaryWriter(FLAGS.train_dir)
@@ -235,6 +208,16 @@ def main(unused_argv):
             stats_trace.append(stats)
         if step % FLAGS.gc_every == 0:
             gc.collect()
+
+        # update semantic loss only on host coz it has biggest memory
+        if (jax.host_id() == 0) and (step % FLAGS.sc_loss_every == 0):
+            # remove dimension for device coz its only run in host core
+            batch["random_rays"] = batch["random_rays"][0, ...]
+            batch["embedding"] = batch["embedding"][0, ...]
+            state, sc_loss, keys = clip_utils.update_semantic_loss(model, clip_model,
+                                                                   keys, state, batch, lr)
+        else:
+            sc_loss = 0.
 
         # Log training summaries. This is put behind a host_id check because in
         # multi-host evaluation, all hosts need to run inference even though we
@@ -261,8 +244,9 @@ def main(unused_argv):
                 print(("{:" + "{:d}".format(precision) + "d}").format(step) +
                       f"/{FLAGS.max_steps:d}: " + f"i_loss={stats.loss[0]:0.4f}, " +
                       f"avg_loss={avg_loss:0.4f}, " +
-                      f"weight_l2={stats.weight_l2[0]:0.2e}, " + f"lr={lr:0.2e}, " +
-                      f"{rays_per_sec:0.0f} rays/sec")
+                      f"weight_l2={stats.weight_l2[0]:0.2e}, " +
+                      f"sc_loss={sc_loss:0.4f}, " +
+                      f"lr={lr:0.2e}, {rays_per_sec:0.0f} rays/sec")
             if step % FLAGS.save_every == 0:
                 state_to_save = jax.device_get(jax.tree_map(lambda x: x[0], state))
                 checkpoints.save_checkpoint(

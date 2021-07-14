@@ -45,7 +45,6 @@ class Stats:
     loss_c: float
     psnr_c: float
     weight_l2: float
-    sc_loss: float
 
 
 Rays = collections.namedtuple("Rays", ("origins", "directions", "viewdirs"))
@@ -67,14 +66,14 @@ def define_flags():
     flags.DEFINE_string("precompute_pkl_path", None,
                         "where to load the pickle file that precompute image features")
     flags.DEFINE_string("clip_model_name", "openai/clip-vit-base-patch32", "model type for CLIP")
-    flags.DEFINE_string("clip_output_dtype", None,
+    flags.DEFINE_string("clip_output_dtype", "float32",
                         "float32/ float16 (float16 for memory saving)")
-    flags.DEFINE_integer("clip_downsample_factor", 4,
+    flags.DEFINE_integer("sc_loss_factor", 4,
                          "factor for downsampling image (0/2/4). "
                          "its compounded on top of another flag: factor")
-    flags.DEFINE_integer("sc_loss_eval_step", 16,
+    flags.DEFINE_integer("sc_loss_every", 16,
                          "no. of steps to take before performing semantic loss evaluation")
-    flags.DEFINE_float("weight_sc_mult", 10.,
+    flags.DEFINE_float("sc_loss_mult", 10.,
                        "weighting for semantic loss from CLIP")
 
     # Dataset Flags
