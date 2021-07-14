@@ -1,6 +1,7 @@
 import math
 from typing import Optional
 from absl import flags
+from functools import partial
 
 import jax
 from jax import random
@@ -15,6 +16,7 @@ FLAGS = flags.FLAGS
 #                        output_dtype=np.float16)
 
 
+@partial(jax.jit, static_argnums=[0, 1])
 def update_semantic_loss(model, clip_model, rng, state, batch, lr):
     # the batch is without shard
     random_rays = batch["random_rays"]
