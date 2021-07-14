@@ -224,7 +224,7 @@ class Blender(Dataset):
         """Load images from disk."""
         if flags.render_path:
             raise ValueError("render_path cannot be used for the blender dataset.")
-        cams, images, meta = self.load_files(flags.data_dir, flags.split, flags.factor)
+        cams, images, meta = self.load_files(flags.data_dir, self.split, flags.factor)
 
         # load in CLIP precomputed image features
         self.embeddings = utils.read_pickle(flags.precompute_pkl_path)
