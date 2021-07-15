@@ -30,6 +30,7 @@ from jax import random
 import jax.numpy as jnp
 import numpy as np
 from tqdm import tqdm
+import wandb
 
 from jaxnerf.nerf import datasets
 from jaxnerf.nerf import models
@@ -123,6 +124,7 @@ def train_step(model, rng, state, batch, lr):
 
 
 def main(unused_argv):
+    wandb.init(project="hf-flax-clip-nerf", entity="wandb", sync_tensorboard=True)
     rng = random.PRNGKey(20200823)
     # Shift the numpy random seed by host_id() to shuffle data loaded by different
     # hosts.
